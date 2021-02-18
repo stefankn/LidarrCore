@@ -13,10 +13,22 @@ public final class Service {
     
     public typealias Completion<Value> = (Result<Value, Error>) -> Void
     
-    public enum ServiceError: Error {
+    public enum ServiceError: LocalizedError {
         case invalidEndpoint
         case invalidResponse
         case invalidDate
+        case response(statusCode: Int, message: String)
+        
+        public var errorDescription: String? {
+            switch self {
+            case .invalidEndpoint, .invalidDate:
+                return "Bad request"
+            case .invalidResponse:
+                return "Invalid response from server"
+            case .response(statusCode: let statusCode, message: let message):
+                return "\(message) (\(statusCode))"
+            }
+        }
     }
     
     
@@ -61,31 +73,39 @@ public final class Service {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue(server.apikey, forHTTPHeaderField: "X-Api-Key")
         
-        let session = URLSession(configuration: .default)
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = true
+        
+        let session = URLSession(configuration: configuration)
         session.dataTask(with: urlRequest) { data, response, error in
-            
-            
             if let error = error {
                 completion(.failure(error))
-            } else if let data = data {
+            } else if let data = data, let response = response {
                 do {
-                    let dateFormatter = DateFormatter()
-                    dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-                    dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss.SSSS"
                     
-                    let decoder = JSONDecoder()
-                    decoder.dateDecodingStrategy = .custom { decoder -> Date in
-                        let container = try decoder.singleValueContainer()
-                        let value = try container.decode(String.self)
-                        if let date = request.dateFormatter.date(from: value) {
-                            return date
-                        } else {
-                            throw ServiceError.invalidDate
+                    if response.isSuccess {
+                        let dateFormatter = DateFormatter()
+                        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+                        dateFormatter.dateFormat = "yyyyMMdd'T'HHmmss.SSSS"
+                        
+                        let decoder = JSONDecoder()
+                        decoder.dateDecodingStrategy = .custom { decoder -> Date in
+                            let container = try decoder.singleValueContainer()
+                            let value = try container.decode(String.self)
+                            if let date = request.dateFormatter.date(from: value) {
+                                return date
+                            } else {
+                                throw ServiceError.invalidDate
+                            }
                         }
+                        let model = try decoder.decode(T.Response.self, from: data)
+                        
+                        completion(.success(model))
+                    } else {
+                        let error = try JSONDecoder().decode(ErrorResponse.self, from: data)
+                        completion(.failure(ServiceError.response(statusCode: response.httpStatusCode ?? -1, message: error.error)))
                     }
-                    let model = try decoder.decode(T.Response.self, from: data)
                     
-                    completion(.success(model))
                 } catch {
                     completion(.failure(error))
                 }
