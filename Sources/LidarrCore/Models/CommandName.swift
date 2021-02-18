@@ -19,4 +19,5 @@ public enum CommandName: String, Codable {
     case missingAlbumSearch = "MissingAlbumSearch"
     case moveArtist = "MoveArtist"
     case applicationUpdateCheck = "ApplicationUpdateCheck"
+    case importListSync = "ImportListSync"
 }
